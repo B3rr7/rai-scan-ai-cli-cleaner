@@ -11,10 +11,18 @@ PROJECT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 VENV_DIR="$PROJECT_DIR/.venv"
 USER_BIN="${HOME}/.local/bin"
 LAUNCHER="${USER_BIN}/rai-scan"
+LEGACY_LAUNCHER="${VENV_DIR}/bin/rai-scan"
+REPLACE_LEGACY_LAUNCHER=0
 
 if [ -e "$LAUNCHER" ] || [ -L "$LAUNCHER" ]; then
-    if [ -L "$LAUNCHER" ] ||
-       ! head -1 "$LAUNCHER" | grep -q "^#!/bin/sh" ||
+    if [ -L "$LAUNCHER" ]; then
+        if [ "$(readlink "$LAUNCHER")" = "$LEGACY_LAUNCHER" ]; then
+            REPLACE_LEGACY_LAUNCHER=1
+        else
+            echo "Refusing to overwrite an unrelated launcher: $LAUNCHER" >&2
+            exit 1
+        fi
+    elif ! head -1 "$LAUNCHER" | grep -q "^#!/bin/sh" ||
        ! grep -Fqx "PROJECT_DIR=\"$PROJECT_DIR\"" "$LAUNCHER" 2>/dev/null ||
        ! grep -Fq 'exec "$VENV_DIR/bin/python" -m rai_scan "$@"' "$LAUNCHER" 2>/dev/null; then
         echo "Refusing to overwrite an unrelated launcher: $LAUNCHER" >&2
@@ -35,6 +43,10 @@ else
     "$VENV_DIR/bin/python" -m pip install --no-build-isolation -e "$PROJECT_DIR"
 fi
 mkdir -p "$USER_BIN"
+
+if [ "$REPLACE_LEGACY_LAUNCHER" -eq 1 ]; then
+    unlink "$LAUNCHER"
+fi
 
 cat > "$LAUNCHER" << 'WRAPPER'
 #!/bin/sh
