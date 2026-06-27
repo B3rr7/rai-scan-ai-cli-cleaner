@@ -1,4 +1,4 @@
-# rai-scan
+# rai-scan — Linux AI CLI Agent Scanner & Safe Cleanup Tool
 
 `rai-scan` finds known AI CLI agents, estimates their disk usage, and can remove
 their files through recoverable trash.
