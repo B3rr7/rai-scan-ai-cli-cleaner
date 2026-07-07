@@ -13,7 +13,7 @@ from rai_scan.config import (
     ensure_state_dir,
     state_dir,
 )
-from rai_scan.removal.engine import preview, remove_agents
+from rai_scan.removal.engine import preview, purge_trash, remove_agents
 from rai_scan.removal.rollback import rollback_last
 from rai_scan.report import as_html, as_json, as_list, as_markdown
 from rai_scan.scanner import cache_path, get_manifest
@@ -31,6 +31,10 @@ def _common_options(parser: argparse.ArgumentParser, suppress_defaults: bool = F
     )
     parser.add_argument(
         "--root", action="store_true", default=default, help="include system paths"
+    )
+    parser.add_argument(
+        "--permanent", action="store_true", default=default,
+        help="delete permanently instead of moving to trash"
     )
     parser.add_argument(
         "--verbose", action="store_true", default=default, help="show matched artifact paths"
@@ -69,6 +73,7 @@ def build_parser() -> argparse.ArgumentParser:
     add.add_argument("--npm", action="append", default=[])
     add.add_argument("--cargo", action="append", default=[])
     subparsers.add_parser("reset-sig", help="remove custom signatures and use bundled defaults")
+    subparsers.add_parser("purge", help="permanently delete all files in trash")
     return parser
 
 
@@ -99,14 +104,22 @@ def _missing_names(agents: List[Dict[str, Any]], names: List[str]) -> List[str]:
     return [name for name in names if name.lower() not in aliases]
 
 
-def _confirm(agents: List[Dict[str, Any]]) -> bool:
+def _confirm(agents: List[Dict[str, Any]], permanent: bool = False) -> bool:
     package_count = sum(len(agent.get("packages", [])) for agent in agents)
     shell_count = sum(len(agent.get("shell_lines", [])) for agent in agents)
     size = sum(agent["total_bytes"] for agent in agents)
-    print(
-        "Remove {} agent(s)? Move {} to trash, uninstall {} package(s), "
-        "and comment {} shell line(s).".format(len(agents), human_size(size), package_count, shell_count)
-    )
+    if permanent:
+        print(
+            "PERMANENTLY delete {} agent(s)? Delete {} of files, uninstall {} package(s), "
+            "and comment {} shell line(s). THIS CANNOT BE UNDONE.".format(
+                len(agents), human_size(size), package_count, shell_count
+            )
+        )
+    else:
+        print(
+            "Remove {} agent(s)? Move {} to trash, uninstall {} package(s), "
+            "and comment {} shell line(s).".format(len(agents), human_size(size), package_count, shell_count)
+        )
     if input("Type YES to confirm: ").strip() != "YES":
         return False
     home = Path.home().resolve()
@@ -135,7 +148,7 @@ def _confirm(agents: List[Dict[str, Any]]) -> bool:
     return True
 
 
-def _remove(manifest: Dict[str, Any], names: List[str], dry_run: bool, root: bool) -> int:
+def _remove(manifest: Dict[str, Any], names: List[str], dry_run: bool, root: bool, permanent: bool = False) -> int:
     agents = _find_agents(manifest, names)
     missing = _missing_names(agents, names)
     if missing:
@@ -146,10 +159,10 @@ def _remove(manifest: Dict[str, Any], names: List[str], dry_run: bool, root: boo
     if dry_run:
         print("Dry run: no changes made.")
         return 0
-    if not _confirm(agents):
+    if not _confirm(agents, permanent):
         print("Cancelled.")
         return 1
-    record, errors = remove_agents(agents, root)
+    record, errors = remove_agents(agents, root, permanent)
     print("Removal session {} recorded.".format(record["session_id"]))
     if errors:
         print("\n".join(errors), file=sys.stderr)
@@ -176,7 +189,7 @@ def _interactive(manifest: Dict[str, Any], args: argparse.Namespace) -> int:
             print("Selection out of range: {}".format(value), file=sys.stderr)
             return 2
         selected.append(agents[index]["id"])
-    return _remove(manifest, selected, args.dry_run, args.root)
+    return _remove(manifest, selected, args.dry_run, args.root, getattr(args, "permanent", False))
 
 
 def _add_signature(args: argparse.Namespace) -> int:
@@ -277,6 +290,18 @@ def main(argv: Optional[List[str]] = None) -> int:
             print("No custom signatures found. Already using bundled defaults.")
         return 0
 
+    if args.command == "purge":
+        print("This will permanently delete all files in ~/.rai-scan/trash/")
+        if input("Type PURGE to confirm: ").strip() != "PURGE":
+            print("Cancelled.")
+            return 0
+        deleted, errors = purge_trash()
+        if errors:
+            print("Purged {} entries with {} errors.".format(deleted, errors))
+            return 1
+        print("Purged {} entries from trash.".format(deleted))
+        return 0
+
     try:
         manifest = get_manifest(
             True if args.command == "remove" else args.no_cache,
@@ -287,7 +312,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         return 1
 
     if args.command == "remove":
-        return _remove(manifest, args.name, args.dry_run, args.root)
+        return _remove(manifest, args.name, args.dry_run, args.root, getattr(args, "permanent", False))
     if args.command == "list":
         print(_format_output(manifest, args, args.verbose))
         return 0

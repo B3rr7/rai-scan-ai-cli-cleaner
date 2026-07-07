@@ -175,26 +175,38 @@ def _move_artifacts(
     session: str,
     include_root: bool,
     record: Dict[str, Any],
+    permanent: bool = False,
 ) -> List[Dict[str, str]]:
     moved = []
     for source in _artifact_paths(agent):
         _validate_removal_path(source, include_root)
         if not (source.exists() or source.is_symlink()):
             continue
-        destination = _trash_destination(agent["id"], source, session)
-        secure_directory(destination.parent, "trash directory")
-        entry = {"original": str(source), "trash": str(destination)}
-        record["files_moved_to_trash"].append(entry)
-        _update_last_record(record)
-        try:
-            os.rename(str(source), str(destination))
-        except OSError as exc:
-            if exc.errno == getattr(os, "EXDEV", 18):
-                raise RuntimeError(
-                    "refusing non-atomic cross-filesystem move: {}".format(source)
-                )
-            raise
-        moved.append(entry)
+        if permanent:
+            entry = {"original": str(source), "trash": "<permanent>"}
+            record["files_moved_to_trash"].append(entry)
+            _update_last_record(record)
+            if source.is_symlink() or source.is_file():
+                source.unlink()
+            elif source.is_dir():
+                import shutil
+                shutil.rmtree(source)
+            moved.append(entry)
+        else:
+            destination = _trash_destination(agent["id"], source, session)
+            secure_directory(destination.parent, "trash directory")
+            entry = {"original": str(source), "trash": str(destination)}
+            record["files_moved_to_trash"].append(entry)
+            _update_last_record(record)
+            try:
+                os.rename(str(source), str(destination))
+            except OSError as exc:
+                if exc.errno == getattr(os, "EXDEV", 18):
+                    raise RuntimeError(
+                        "refusing non-atomic cross-filesystem move: {}".format(source)
+                    )
+                raise
+            moved.append(entry)
     return moved
 
 
@@ -380,7 +392,7 @@ def _release_lock(fd) -> None:
 
 
 def remove_agents(
-    agents: List[Dict[str, Any]], include_root: bool = False
+    agents: List[Dict[str, Any]], include_root: bool = False, permanent: bool = False
 ) -> Tuple[Dict[str, Any], List[str]]:
     refuse_root("remove agents")
     ensure_state_dir()
@@ -413,7 +425,7 @@ def remove_agents(
                     errors.append(message)
                 continue
             try:
-                _move_artifacts(agent, session, include_root, record)
+                _move_artifacts(agent, session, include_root, record, permanent)
                 for package in agent.get("packages", []):
                     if package.get("scope", "user") == "system" and not include_root:
                         raise PermissionError(
@@ -471,6 +483,41 @@ def remove_agents(
         return record, errors
     finally:
         _release_lock(lock_fd)
+
+
+def purge_trash() -> Tuple[int, int]:
+    """Permanently delete all files in the trash directory.
+
+    Returns (deleted_count, error_count).
+    """
+    refuse_root("purge trash")
+    trash_dir = state_dir() / "trash"
+    if not trash_dir.is_dir():
+        return 0, 0
+    deleted = 0
+    errors = 0
+    for entry in sorted(trash_dir.iterdir(), reverse=True):
+        if entry.is_dir():
+            import shutil
+
+            try:
+                shutil.rmtree(entry)
+                deleted += 1
+            except OSError as exc:
+                print("Warning: could not remove {}: {}".format(entry, exc), file=sys.stderr)
+                errors += 1
+        elif entry.is_file():
+            try:
+                entry.unlink()
+                deleted += 1
+            except OSError as exc:
+                print("Warning: could not remove {}: {}".format(entry, exc), file=sys.stderr)
+                errors += 1
+    try:
+        trash_dir.rmdir()
+    except OSError:
+        pass
+    return deleted, errors
 
 
 def _update_last_record(record: Dict[str, Any]) -> None:

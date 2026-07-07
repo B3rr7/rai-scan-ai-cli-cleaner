@@ -271,6 +271,14 @@ def rollback_last() -> Dict[str, Any]:
         for item in reversed(record.get("files_moved_to_trash", [])):
             if not isinstance(item, dict):
                 raise RuntimeError("invalid file restoration entry")
+            if item.get("trash") == "<permanent>":
+                record["rollback_errors"].append(
+                    "file was permanently deleted and cannot be restored: {}".format(
+                        item["original"]
+                    )
+                )
+                _update_record(record)
+                continue
             source = _confined_trash_source(item["trash"])
             destination = _allowed_restore_destination(
                 item["original"], bool(record.get("include_root"))

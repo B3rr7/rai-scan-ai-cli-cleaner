@@ -1,0 +1,663 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>rai-scan — Find &amp; safely remove AI CLI agents</title>
+  <meta name="description" content="rai-scan finds known AI CLI agents on your Linux system, estimates their disk usage, and safely removes their files through recoverable trash. Zero runtime dependencies.">
+  <meta name="keywords" content="ai, cli, agent, cleanup, scan, remove, linux, trash, rollback, recoverable, disk usage">
+  <meta name="author" content="rai-scan contributors">
+  <link rel="canonical" href="https://rai-scan.dev/">
+  <meta property="og:title" content="rai-scan — Safely remove AI CLI agents">
+  <meta property="og:description" content="Find and recoverably remove AI coding agents, assistants, and their cached data from your Linux system. Zero dependencies.">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://rai-scan.dev/">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="rai-scan — Find &amp; safely remove AI CLI agents">
+  <meta name="twitter:description" content="Detect, estimate, and recoverably remove AI agent leftovers from your system. Zero runtime dependencies.">
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    "name": "rai-scan",
+    "applicationCategory": "DeveloperApplication",
+    "operatingSystem": "Linux",
+    "description": "Finds known AI CLI agents, estimates their disk usage, and removes their files through recoverable trash.",
+    "version": "0.1.0",
+    "author": { "@type": "Organization", "name": "rai-scan contributors" },
+    "license": "MIT",
+    "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" }
+  }
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+    :root{
+      --bg:#080a12;
+      --bg-alt:#0c0f1a;
+      --surface:#111522;
+      --surface-2:#171d2f;
+      --surface-3:#1f2640;
+      --border:#252d4a;
+      --border-glow:rgba(108,92,231,.2);
+      --text:#e4e8f2;
+      --text-dim:#7a82a0;
+      --text-muted:#5a6280;
+      --accent:#6c5ce7;
+      --accent-soft:#8b7cf7;
+      --accent-glow:rgba(108,92,231,.25);
+      --green:#00d68f;
+      --green-dim:rgba(0,214,143,.15);
+      --cyan:#00d2d3;
+      --orange:#fca130;
+      --red:#ff6b6b;
+      --pink:#e84393;
+      --radius:14px;
+      --radius-sm:10px;
+      --font:'Inter','SF Pro',system-ui,-apple-system,sans-serif;
+      --mono:'JetBrains Mono','SF Mono','Fira Code','Cascadia Code',monospace;
+    }
+    ::selection{background:var(--accent);color:#fff}
+    ::-webkit-scrollbar{width:8px}
+    ::-webkit-scrollbar-track{background:var(--bg)}
+    ::-webkit-scrollbar-thumb{background:var(--surface-3);border-radius:4px}
+    ::-webkit-scrollbar-thumb:hover{background:var(--border)}
+    html{scroll-behavior:smooth}
+    body{
+      font-family:var(--font);
+      background:var(--bg);
+      color:var(--text);
+      line-height:1.65;
+      -webkit-font-smoothing:antialiased;
+      overflow-x:hidden;
+    }
+    .container{max-width:1120px;margin:0 auto;padding:0 24px;position:relative;z-index:1}
+
+    /* ——— ORB ——— */
+    .orb{
+      position:fixed;top:-40vh;right:-20vw;width:90vmax;height:90vmax;
+      background:radial-gradient(circle at 30% 40%,rgba(108,92,231,.12) 0%,rgba(0,210,211,.06) 40%,transparent 65%);
+      border-radius:50%;pointer-events:none;z-index:0;
+      animation:orbFloat 20s ease-in-out infinite;
+    }
+    .orb-2{
+      position:fixed;bottom:-30vh;left:-15vw;width:70vmax;height:70vmax;
+      background:radial-gradient(circle at 60% 60%,rgba(0,214,143,.08) 0%,rgba(108,92,231,.04) 35%,transparent 60%);
+      border-radius:50%;pointer-events:none;z-index:0;
+      animation:orbFloat2 25s ease-in-out infinite;
+    }
+    @keyframes orbFloat{
+      0%,100%{transform:translate(0,0) rotate(0deg) scale(1)}
+      33%{transform:translate(40px,-60px) rotate(5deg) scale(1.05)}
+      66%{transform:translate(-30px,20px) rotate(-3deg) scale(.95)}
+    }
+    @keyframes orbFloat2{
+      0%,100%{transform:translate(0,0) rotate(0deg) scale(1)}
+      33%{transform:translate(-50px,40px) rotate(-4deg) scale(1.08)}
+      66%{transform:translate(30px,-30px) rotate(3deg) scale(.92)}
+    }
+
+    /* ——— NAV ——— */
+    nav{
+      position:fixed;top:0;left:0;right:0;z-index:100;
+      display:flex;align-items:center;justify-content:space-between;
+      padding:14px 24px;max-width:1168px;margin:0 auto;
+      background:rgba(8,10,18,.75);-webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px);
+      border-bottom:1px solid transparent;transition:border-color .3s;
+    }
+    body:not(:has(.hero:hover)) nav{border-color:var(--border)}
+    .nav-inner{display:flex;align-items:center;gap:32px;margin:0 auto;width:100%;max-width:1120px}
+    .logo{font-weight:700;font-size:1.15rem;letter-spacing:-.02em;display:flex;align-items:center;gap:8px}
+    .logo-icon{width:28px;height:28px;background:linear-gradient(135deg,var(--accent),var(--cyan));border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:.85rem}
+    .logo span{background:linear-gradient(135deg,var(--text),var(--text-dim));-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+    .nav-links{display:flex;gap:24px;margin-left:auto}
+    .nav-links a{color:var(--text-muted);text-decoration:none;font-size:.88rem;font-weight:500;transition:color .25s;position:relative}
+    .nav-links a::after{content:'';position:absolute;bottom:-3px;left:0;width:0;height:2px;background:var(--accent);border-radius:2px;transition:width .25s}
+    .nav-links a:hover{color:var(--text)}
+    .nav-links a:hover::after{width:100%}
+    @media(max-width:640px){.nav-links{display:none}}
+
+    /* ——— HERO ——— */
+    .hero{
+      min-height:100vh;display:flex;align-items:center;justify-content:center;
+      padding:100px 0 60px;position:relative;overflow:hidden;text-align:center;
+    }
+    .hero::before{
+      content:'';position:absolute;top:0;left:0;right:0;height:1px;
+      background:linear-gradient(90deg,transparent,var(--border-glow),transparent);
+    }
+    .hero-badge{
+      display:inline-flex;align-items:center;gap:8px;
+      background:var(--surface);border:1px solid var(--border);
+      padding:5px 14px 5px 8px;border-radius:20px;font-size:.78rem;color:var(--text-dim);
+      margin-bottom:28px;transition:border-color .3s;
+    }
+    .hero-badge:hover{border-color:var(--accent)}
+    .hero-badge .dot{width:8px;height:8px;border-radius:50%;background:var(--green);display:inline-block;animation:pulse 2s infinite}
+    @keyframes pulse{0%,100%{opacity:1;box-shadow:0 0 0 0 var(--green-dim)}50%{opacity:.7;box-shadow:0 0 0 6px var(--green-dim)}}
+    .hero h1{
+      font-size:clamp(2.2rem,6vw,4.2rem);font-weight:800;
+      letter-spacing:-.035em;line-height:1.08;margin-bottom:18px;
+    }
+    .hero h1 .gradient{background:linear-gradient(135deg,var(--accent-soft) 0%,var(--cyan) 50%,var(--green) 100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+    .hero h1 .block{display:block}
+    .hero p{
+      font-size:clamp(.95rem,1.8vw,1.12rem);color:var(--text-dim);
+      max-width:580px;margin:0 auto 32px;line-height:1.7;
+    }
+    .hero-actions{display:flex;gap:12px;justify-content:center;flex-wrap:wrap}
+    .btn{
+      display:inline-flex;align-items:center;gap:8px;
+      padding:12px 28px;border-radius:var(--radius-sm);font-weight:600;font-size:.92rem;
+      text-decoration:none;transition:all .25s;border:none;cursor:pointer;
+      position:relative;overflow:hidden;
+    }
+    .btn-primary{
+      background:linear-gradient(135deg,var(--accent),#5a4bd1);color:#fff;
+      box-shadow:0 0 24px var(--accent-glow);
+    }
+    .btn-primary::before{content:'';position:absolute;inset:0;background:linear-gradient(135deg,transparent 40%,rgba(255,255,255,.08));pointer-events:none}
+    .btn-primary:hover{transform:translateY(-3px);box-shadow:0 0 40px var(--accent-glow)}
+    .btn-primary:active{transform:translateY(-1px)}
+    .btn-outline{
+      background:rgba(255,255,255,.04);color:var(--text);border:1px solid var(--border);
+      -webkit-backdrop-filter:blur(4px);backdrop-filter:blur(4px);
+    }
+    .btn-outline:hover{background:var(--surface-2);border-color:var(--accent)}
+    .hero-cmd{
+      display:inline-flex;align-items:center;gap:0;
+      border-radius:var(--radius-sm);overflow:hidden;
+      margin-top:36px;font-family:var(--mono);font-size:.82rem;
+      border:1px solid var(--border);background:var(--surface);
+      cursor:pointer;transition:all .25s;
+    }
+    .hero-cmd:hover{border-color:var(--accent);box-shadow:0 0 20px var(--accent-glow)}
+    .hero-cmd .prompt{padding:10px 0 10px 16px;color:var(--green);user-select:none}
+    .hero-cmd .cmd-text{padding:10px 8px;color:var(--text)}
+    .hero-cmd .cmd-btn{
+      padding:10px 14px;background:var(--surface-2);color:var(--text-dim);
+      font-family:var(--font);font-size:.78rem;font-weight:500;
+      border:none;cursor:pointer;transition:all .2s;display:flex;align-items:center;gap:5px;
+    }
+    .hero-cmd .cmd-btn:hover{background:var(--surface-3);color:var(--text)}
+
+    /* ——— SCROLL INDICATOR ——— */
+    .scroll-down{
+      position:absolute;bottom:24px;left:50%;transform:translateX(-50%);
+      display:flex;flex-direction:column;align-items:center;gap:6px;
+      color:var(--text-muted);font-size:.72rem;letter-spacing:.04em;text-transform:uppercase;
+      animation:fadeUp 3s ease 2s infinite;cursor:pointer;
+    }
+    .scroll-down .arrow{width:16px;height:16px;border-right:2px solid var(--text-muted);border-bottom:2px solid var(--text-muted);transform:rotate(45deg);animation:bounce 2s infinite}
+    @keyframes bounce{0%,100%{transform:rotate(45deg) translateY(0)}50%{transform:rotate(45deg) translateY(5px)}}
+    @keyframes fadeUp{0%,100%{opacity:1}50%{opacity:.4}}
+
+    /* ——— SECTIONS ——— */
+    section{padding:90px 0;position:relative}
+    section:nth-child(even){background:var(--bg-alt)}
+    .section-label{
+      display:inline-block;font-size:.75rem;font-weight:600;letter-spacing:.08em;text-transform:uppercase;
+      color:var(--accent);margin-bottom:12px;
+    }
+    section h2{
+      font-size:clamp(1.6rem,3.5vw,2.2rem);font-weight:700;
+      letter-spacing:-.025em;margin-bottom:14px;
+    }
+    .section-sub{
+      color:var(--text-dim);font-size:1rem;max-width:600px;margin:0 auto 52px;
+      line-height:1.65;
+    }
+    .center{text-align:center}
+
+    /* ——— FEATURES ——— */
+    .features{display:grid;grid-template-columns:repeat(auto-fit,minmax(310px,1fr));gap:20px}
+    .feature{
+      background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);
+      padding:30px;transition:all .35s cubic-bezier(.22,1,.36,1);position:relative;overflow:hidden;
+    }
+    .feature::before{content:'';position:absolute;top:0;left:0;right:0;height:1px;background:linear-gradient(90deg,transparent,var(--border-glow),transparent);opacity:0;transition:opacity .35s}
+    .feature:hover{transform:translateY(-4px);border-color:var(--accent);box-shadow:0 12px 48px rgba(108,92,231,.1)}
+    .feature:hover::before{opacity:1}
+    .feature-icon{
+      width:46px;height:46px;border-radius:12px;display:flex;align-items:center;justify-content:center;
+      margin-bottom:18px;font-size:1.25rem;transition:transform .3s;
+    }
+    .feature:hover .feature-icon{transform:scale(1.06)}
+    .feature-icon.purple{background:rgba(108,92,231,.15);color:var(--accent-soft)}
+    .feature-icon.green{background:rgba(0,214,143,.12);color:var(--green)}
+    .feature-icon.cyan{background:rgba(0,210,211,.12);color:var(--cyan)}
+    .feature-icon.orange{background:rgba(252,161,48,.12);color:var(--orange)}
+    .feature-icon.red{background:rgba(255,107,107,.12);color:var(--red)}
+    .feature-icon.pink{background:rgba(232,67,147,.12);color:var(--pink)}
+    .feature h3{font-size:1.05rem;margin-bottom:8px;font-weight:600}
+    .feature p{font-size:.88rem;color:var(--text-dim);line-height:1.6}
+    .feature code{font-family:var(--mono);font-size:.8rem;color:var(--cyan);background:var(--surface-2);padding:1px 6px;border-radius:4px}
+
+    /* ——— STEPS ——— */
+    .steps{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:24px}
+    .step{
+      background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);
+      padding:32px 28px;position:relative;transition:all .35s;
+    }
+    .step:hover{border-color:var(--accent);transform:translateY(-3px);box-shadow:0 8px 32px rgba(108,92,231,.08)}
+    .step-num{
+      display:inline-flex;width:32px;height:32px;border-radius:10px;align-items:center;justify-content:center;
+      font-size:.78rem;font-weight:700;background:linear-gradient(135deg,var(--accent),#5a4bd1);color:#fff;margin-bottom:14px;
+    }
+    .step h3{font-size:1rem;font-weight:600;margin-bottom:8px}
+    .step p{font-size:.86rem;color:var(--text-dim);line-height:1.6}
+    .step code{
+      display:block;background:var(--surface-2);border:1px solid var(--border);
+      padding:10px 14px;border-radius:8px;font-size:.8rem;margin-top:14px;
+      font-family:var(--mono);color:var(--text);line-height:1.7;
+    }
+    .step code .prompt{color:var(--green)}
+    .step code .comment{color:var(--text-muted);font-style:italic}
+
+    /* ——— TERMINAL DEMO ——— */
+    .terminal{
+      background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);
+      margin-top:56px;overflow:hidden;max-width:700px;margin-left:auto;margin-right:auto;
+      box-shadow:0 8px 40px rgba(0,0,0,.3);
+    }
+    .terminal-bar{
+      display:flex;align-items:center;gap:8px;padding:12px 16px;
+      background:var(--surface-2);border-bottom:1px solid var(--border);
+    }
+    .terminal-dot{width:10px;height:10px;border-radius:50%}
+    .terminal-dot.r{background:#ff5f57}
+    .terminal-dot.y{background:#febc2e}
+    .terminal-dot.g{background:#28c840}
+    .terminal-title{font-size:.78rem;color:var(--text-muted);margin-left:8px;font-family:var(--mono)}
+    .terminal-body{padding:16px 18px;font-family:var(--mono);font-size:.8rem;line-height:1.8}
+    .terminal-body .line{display:flex;align-items:center;gap:8px}
+    .terminal-body .gp{color:var(--green);user-select:none;width:14px}
+    .terminal-body .c{color:var(--cyan)}
+    .terminal-body .m{color:var(--text-muted)}
+    .terminal-body .o{color:var(--orange)}
+    .terminal-body .g{color:var(--green)}
+    .terminal-body .sep{border-top:1px solid var(--border);padding-top:6px;margin-top:6px}
+
+    /* ——— SAFETY ——— */
+    .safety-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:16px}
+    .safety-item{
+      background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-sm);
+      padding:20px 22px;display:flex;align-items:flex-start;gap:14px;transition:border-color .25s;
+    }
+    .safety-item:hover{border-color:var(--border-glow)}
+    .safety-item .icon{font-size:1.1rem;margin-top:2px;flex-shrink:0;width:22px;text-align:center}
+    .safety-item .icon.g{color:var(--green)}
+    .safety-item .icon.r{color:var(--red)}
+    .safety-item .text{font-size:.86rem;color:var(--text-dim)}
+    .safety-item .text strong{display:block;color:var(--text);margin-bottom:3px;font-size:.9rem}
+    .safety-item code{font-family:var(--mono);font-size:.78rem;color:var(--cyan);background:var(--surface-2);padding:1px 5px;border-radius:3px}
+
+    /* ——— STATS ——— */
+    .stats{
+      background:linear-gradient(135deg,var(--surface) 0%,var(--surface-2) 100%);
+      border:1px solid var(--border);border-radius:var(--radius);
+      padding:48px 40px;text-align:center;
+    }
+    .stats-grid{display:flex;justify-content:center;gap:56px;flex-wrap:wrap}
+    .stat-item{text-align:center}
+    .stat-num{font-size:2.6rem;font-weight:800;letter-spacing:-.03em;line-height:1;margin-bottom:4px}
+    .stat-num.purple{color:var(--accent-soft)}
+    .stat-num.green{color:var(--green)}
+    .stat-num.cyan{color:var(--cyan)}
+    .stat-label{font-size:.82rem;color:var(--text-muted)}
+
+    /* ——— CTA ——— */
+    .cta{
+      text-align:center;padding:80px 0 40px;
+    }
+    .cta h2{font-size:clamp(1.4rem,3vw,2rem)}
+    .cta p{color:var(--text-dim);margin:12px 0 28px;font-size:1rem}
+
+    /* ——— FOOTER ——— */
+    footer{
+      text-align:center;padding:36px 24px 32px;
+      border-top:1px solid var(--border);color:var(--text-muted);font-size:.84rem;
+    }
+    footer a{color:var(--accent-soft);text-decoration:none;transition:color .2s}
+    footer a:hover{color:var(--cyan)}
+    .footer-links{display:flex;justify-content:center;gap:20px;margin-top:10px}
+
+    /* ——— TOAST ——— */
+    .toast{
+      position:fixed;bottom:28px;left:50%;transform:translateX(-50%) translateY(80px);
+      background:var(--surface-2);border:1px solid var(--border);
+      color:var(--text);padding:10px 22px;border-radius:var(--radius-sm);
+      font-size:.85rem;opacity:0;z-index:200;
+      transition:all .35s cubic-bezier(.22,1,.36,1);pointer-events:none;
+      -webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);
+    }
+    .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+
+    /* ——— KEYFRAMES ——— */
+    @keyframes fadeInUp{from{opacity:0;transform:translateY(24px)}to{opacity:1;transform:translateY(0)}}
+    .animate{animation:fadeInUp .6s ease forwards}
+    .animate-d1{animation-delay:.1s}
+    .animate-d2{animation-delay:.2s}
+    .animate-d3{animation-delay:.3s}
+    .animate-d4{animation-delay:.4s}
+    .animate-d5{animation-delay:.5s}
+
+    @media(max-width:640px){
+      .hero{padding:80px 0 40px;min-height:auto}
+      section{padding:56px 0}
+      .features,.safety-grid{grid-template-columns:1fr}
+      .steps{grid-template-columns:1fr}
+      .stats-grid{gap:28px}
+      .hero-cmd{font-size:.72rem;flex-wrap:wrap;border-radius:8px}
+      .hero-cmd .cmd-btn{width:100%;justify-content:center;border-top:1px solid var(--border)}
+    }
+  </style>
+</head>
+<body>
+
+<div class="orb"></div>
+<div class="orb-2"></div>
+
+<nav>
+  <div class="nav-inner">
+    <div class="logo"><div class="logo-icon">⛊</div> <span>rai-scan</span></div>
+    <div class="nav-links">
+      <a href="#features">Features</a>
+      <a href="#how-it-works">How it works</a>
+      <a href="#safety">Safety</a>
+    </div>
+  </div>
+</nav>
+
+<section class="hero">
+  <div class="container">
+    <div class="hero-badge animate animate-d1"><span class="dot"></span> v0.1.0 &middot; MIT</div>
+    <h1 class="animate animate-d2">
+      <span class="block">Find &amp; safely remove</span>
+      <span class="gradient block">AI CLI agents</span>
+    </h1>
+    <p class="animate animate-d3">Detect known AI coding agents on your Linux system,<br>estimate their footprint, and remove them through recoverable trash.</p>
+    <div class="hero-actions animate animate-d4">
+      <a href="#how-it-works" class="btn btn-primary">Get started</a>
+      <a href="https://github.com/B3rr7/rai-scan-ai-cli-cleaner" class="btn btn-outline" target="_blank" rel="noopener">View on GitHub ↗</a>
+    </div>
+    <div class="hero-cmd animate animate-d5" id="installCmd" onclick="copyInstall()">
+      <span class="prompt">$</span>
+      <span class="cmd-text">git clone https://github.com/B3rr7/rai-scan-ai-cli-cleaner.git &amp;&amp; cd rai-scan-ai-cli-cleaner &amp;&amp; ./install.sh</span>
+      <button class="cmd-btn" id="copyBtn" onclick="event.stopPropagation();copyInstall()">📋 Copy</button>
+    </div>
+  </div>
+  <div class="scroll-down" onclick="document.getElementById('features').scrollIntoView({behavior:'smooth'})">
+    <span>Scroll</span>
+    <div class="arrow"></div>
+  </div>
+</section>
+
+<section id="features">
+  <div class="container">
+    <div class="center">
+      <div class="section-label">Features</div>
+      <h2>Everything you need to clean up AI agents</h2>
+      <p class="section-sub">Scan, estimate, remove, and roll back — with safety built in at every step.</p>
+    </div>
+    <div class="features">
+      <div class="feature">
+        <div class="feature-icon purple">🔍</div>
+        <h3>Deep scanning</h3>
+        <p>Detects binaries, pip/npm/cargo packages, config dirs, caches, shell startup lines, and systemd units from 100+ known AI CLI tools across your entire home directory.</p>
+      </div>
+      <div class="feature">
+        <div class="feature-icon green">📊</div>
+        <h3>Disk usage estimates</h3>
+        <p>Calculates how much space each agent consumes with recursive directory sizing and nested-path deduplication. Know what you'll free up before taking action.</p>
+      </div>
+      <div class="feature">
+        <div class="feature-icon cyan">🗑️</div>
+        <h3>Recoverable trash</h3>
+        <p>Files move to <code>~/.rai-scan/trash/</code> — nothing is deleted immediately. Roll back the latest removal session to restore files, packages, daemons, and shell lines.</p>
+      </div>
+      <div class="feature">
+        <div class="feature-icon orange">🔬</div>
+        <h3>Low-confidence detection</h3>
+        <p>Unknown AI-related data is reported separately using name heuristics and model-file markers (.gguf, .safetensors, .onnx). Never auto-selected for removal.</p>
+      </div>
+      <div class="feature">
+        <div class="feature-icon pink">⚡</div>
+        <h3>Permanent deletion</h3>
+        <p>Use <code>--permanent</code> to delete files directly instead of moving to trash. The <code>purge</code> command empties the trash directory when you're ready.</p>
+      </div>
+      <div class="feature">
+        <div class="feature-icon red">🛡️</div>
+        <h3>Signed rollback journal</h3>
+        <p>Every removal is recorded in an HMAC-SHA256-signed journal. Tampering with the journal is detected and causes rollback to fail closed — your data stays safe.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="how-it-works">
+  <div class="container">
+    <div class="center">
+      <div class="section-label">Workflow</div>
+      <h2>Three commands to go from scan to cleanup</h2>
+      <p class="section-sub">No config files to edit. No daemons to run. Just install, scan, and choose what to remove.</p>
+    </div>
+    <div class="steps">
+      <div class="step">
+        <div class="step-num">1</div>
+        <h3>Scan your system</h3>
+        <p>List every detected agent with disk size, confidence level, and the components that were matched. Use <code>--verbose</code> to see every path found.</p>
+        <code><span class="prompt">$</span> rai-scan list --no-cache --verbose</code>
+      </div>
+      <div class="step">
+        <div class="step-num">2</div>
+        <h3>Remove what you don't need</h3>
+        <p>Preview every file, package, shell line, and daemon that will be affected. Confirm with <code>YES</code> to move files to recoverable trash.</p>
+        <code><span class="prompt">$</span> rai-scan remove claude<br><span class="comment"># Type YES to confirm</span></code>
+      </div>
+      <div class="step">
+        <div class="step-num">3</div>
+        <h3>Roll back if you change your mind</h3>
+        <p>Restore the last removal session — files come back from trash, packages are reinstalled, daemons re-enabled, shell lines uncommented.</p>
+        <code><span class="prompt">$</span> rai-scan rollback</code>
+      </div>
+    </div>
+
+    <div class="terminal" id="terminalDemo">
+      <div class="terminal-bar">
+        <div class="terminal-dot r"></div>
+        <div class="terminal-dot y"></div>
+        <div class="terminal-dot g"></div>
+        <span class="terminal-title">rai-scan list --no-cache</span>
+      </div>
+      <div class="terminal-body">
+        <div class="line"><span class="gp">$</span><span class="c"> rai-scan list --no-cache</span></div>
+        <div class="line">&nbsp;</div>
+        <div class="line"><span class="gp">#1</span><span class="c"> Claude Code</span>           <span class="m">config, cache</span>          <span class="g">  1.2 GB</span></div>
+        <div class="line"><span class="gp">#2</span><span class="c"> Ollama</span>                   <span class="m">binary, cache, daemon</span>  <span class="g">  5.6 GB</span></div>
+        <div class="line"><span class="gp">#3</span><span class="c"> OpenAI Codex CLI</span>        <span class="m">binary, config</span>         <span class="g">342.0 MB</span></div>
+        <div class="line"><span class="gp">#4</span><span class="c"> aider</span>                    <span class="m">pip, config</span>             <span class="g"> 28.5 MB</span></div>
+        <div class="line"><span class="gp">#5</span><span class="o"> [orphans]</span>                                          <span class="g">512.0 KB</span></div>
+        <div class="line sep"><span></span><strong style="color:var(--text)">Total reclaimable:</strong>    <span class="g" style="font-weight:700">  7.0 GB</span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="safety">
+  <div class="container">
+    <div class="center">
+      <div class="section-label">Safety</div>
+      <h2>Built for safe, recoverable cleanup</h2>
+      <p class="section-sub">rai-scan was designed from the ground up to protect your data — not destroy it.</p>
+    </div>
+    <div class="safety-grid">
+      <div class="safety-item">
+        <div class="icon g">✓</div>
+        <div class="text"><strong>Recoverable trash</strong>Files are moved to <code>~/.rai-scan/trash/</code> and can be restored with a single command. Nothing is deleted without a way back.</div>
+      </div>
+      <div class="safety-item">
+        <div class="icon g">✓</div>
+        <div class="text"><strong>Two-factor confirmation</strong>Every removal prints a full preview and requires <code>YES</code>. System-scoped operations also require <code>SYSTEM</code>.</div>
+      </div>
+      <div class="safety-item">
+        <div class="icon g">✓</div>
+        <div class="text"><strong>Pre-removal path revalidation</strong>Every path is checked for device, inode, mode, owner, size, and mtime immediately before removal. If anything changed, the operation is blocked.</div>
+      </div>
+      <div class="safety-item">
+        <div class="icon r">✗</div>
+        <div class="text"><strong>Root execution refused</strong>Installation, removal, rollback, and uninstall all refuse to run as root. rai-scan runs with your normal user's permissions only.</div>
+      </div>
+      <div class="safety-item">
+        <div class="icon r">✗</div>
+        <div class="text"><strong>Symlinks rejected</strong>Symlinked state directories, journal files, and shell startup files are rejected to prevent symlink-based privilege escalation attacks.</div>
+      </div>
+      <div class="safety-item">
+        <div class="icon g">✓</div>
+        <div class="text"><strong>Atomic writes with fsync</strong>All state files are written atomically using <code>tempfile</code> + <code>os.replace</code> + <code>fsync</code>. Partial writes or crashes never leave corrupt state.</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="container">
+    <div class="stats">
+      <div class="section-label" style="margin-bottom:6px">Project</div>
+      <h2 style="margin-bottom:28px">rai-scan by the numbers</h2>
+      <div class="stats-grid">
+        <div class="stat-item">
+          <div class="stat-num purple">100+</div>
+          <div class="stat-label">Known AI agents</div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-num green" id="testCount">61</div>
+          <div class="stat-label">Automated tests</div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-num cyan">0</div>
+          <div class="stat-label">Runtime dependencies</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="cta">
+  <div class="container">
+    <h2>Ready to clean up your system?</h2>
+    <p>Install rai-scan and scan your machine in under 30 seconds.</p>
+    <div class="hero-actions">
+      <a href="#installCmd" class="btn btn-primary" onclick="event.preventDefault();document.getElementById('installCmd').scrollIntoView({behavior:'smooth'});setTimeout(()=>document.getElementById('installCmd').click(),800)">Install now</a>
+      <a href="https://github.com/B3rr7/rai-scan-ai-cli-cleaner" class="btn btn-outline" target="_blank" rel="noopener">GitHub ↗</a>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <p>rai-scan &mdash; MIT License. Zero third-party Python dependencies.</p>
+  <div class="footer-links">
+    <a href="https://github.com/B3rr7/rai-scan-ai-cli-cleaner">GitHub</a>
+    <a href="#features">Features</a>
+    <a href="#safety">Safety</a>
+  </div>
+</footer>
+
+<div class="toast" id="toast">Copied to clipboard</div>
+
+<script>
+  (function(){
+    /* ——— clipboard ——— */
+    window.copyInstall = function(){
+      var text="git clone https://github.com/B3rr7/rai-scan-ai-cli-cleaner.git && cd rai-scan-ai-cli-cleaner && ./install.sh";
+      navigator.clipboard.writeText(text).then(function(){
+        showToast("Copied to clipboard");
+        var btn=document.getElementById("copyBtn");
+        btn.innerHTML="✓ Copied";
+        setTimeout(function(){btn.innerHTML="📋 Copy"},2000);
+      },function(){
+        showToast("Failed to copy");
+      });
+    };
+    function showToast(msg){
+      var t=document.getElementById("toast");
+      t.textContent=msg;
+      t.classList.add("show");
+      setTimeout(function(){t.classList.remove("show");t.textContent="Copied to clipboard"},2200);
+    }
+
+    /* ——— smooth scroll ——— */
+    document.querySelectorAll('a[href^="#"]').forEach(function(a){
+      a.addEventListener("click",function(e){
+        var t=document.querySelector(this.getAttribute("href"));
+        if(t){e.preventDefault();t.scrollIntoView({behavior:"smooth",block:"start"})}
+      });
+    });
+
+    /* ——— intersection observer for animations ——— */
+    if("IntersectionObserver" in window){
+      var els=document.querySelectorAll(".feature,.step,.safety-item,.stat-item");
+      var obs=new IntersectionObserver(function(entries){
+        entries.forEach(function(e){
+          if(e.isIntersecting){
+            e.target.style.opacity="1";
+            e.target.style.transform="translateY(0)";
+            obs.unobserve(e.target);
+          }
+        });
+      },{threshold:.08});
+      els.forEach(function(el){
+        el.style.opacity="0";
+        el.style.transform="translateY(20px)";
+        el.style.transition="opacity .5s ease, transform .5s ease";
+        obs.observe(el);
+      });
+    }
+
+    /* ——— terminal typing effect ——— */
+    (function(){
+      var lines=document.querySelectorAll("#terminalDemo .terminal-body .line");
+      if(!lines.length)return;
+      var totalChars=0;
+      lines.forEach(function(l){totalChars+=l.textContent.length});
+      var duration=1800;
+      var start=null;
+      function frame(ts){
+        if(!start)start=ts;
+        var elapsed=ts-start;
+        var progress=Math.min(elapsed/duration,1);
+        var charsSoFar=Math.floor(progress*totalChars);
+        var assigned=0;
+        lines.forEach(function(l){
+          var txt=l.textContent;
+          var isPrompt=l.querySelector(".gp");
+          if(isPrompt){l.style.visibility="visible";return}
+          var len=txt.length;
+          if(assigned+len<=charsSoFar){
+            l.style.visibility="visible";
+          }else if(assigned<charsSoFar){
+            l.style.visibility="visible";
+            var partial=charsSoFar-assigned;
+            l.textContent=txt.slice(0,partial)+"▊";
+            setTimeout(function(){l.textContent=txt;l.style.visibility="visible"},200);
+          }
+          assigned+=len;
+        });
+        if(progress<1)requestAnimationFrame(frame);
+        else lines.forEach(function(l){l.style.visibility="visible"});
+      }
+      lines.forEach(function(l){l.style.visibility="hidden"});
+      setTimeout(function(){requestAnimationFrame(frame)},400);
+      // show prompt line immediately
+      setTimeout(function(){
+        lines.forEach(function(l){
+          if(l.querySelector(".gp"))l.style.visibility="visible";
+        });
+      },100);
+    })();
+  })();
+</script>
+</body>
+</html>

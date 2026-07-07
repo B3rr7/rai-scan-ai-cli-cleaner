@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-from rai_scan.removal.engine import _revalidate_paths, _uninstall, preview, remove_agents
+from rai_scan.removal.engine import _revalidate_paths, _uninstall, preview, purge_trash, remove_agents
 from rai_scan.removal.rollback import append_record, rollback_last
 
 
@@ -417,6 +417,126 @@ class ConfigMergeTests(unittest.TestCase):
                 data = load_signatures()
             self.assertIn("agents", data)
             self.assertGreaterEqual(len(data["agents"]), 1)
+
+
+class PurgeTrashTests(unittest.TestCase):
+    def test_purge_trash_removes_all_entries(self):
+        with tempfile.TemporaryDirectory() as directory:
+            state = Path(directory) / "state"
+            trash = state / "trash"
+            trash.mkdir(parents=True)
+            (trash / "agent1_session1").mkdir()
+            (trash / "agent1_session1" / "file1").write_text("data1")
+            (trash / "agent2_session2").mkdir()
+            (trash / "agent2_session2" / "file2").write_text("data2")
+            with patch.dict(os.environ, {"RAI_SCAN_HOME": str(state)}):
+                deleted, errors = purge_trash()
+            self.assertEqual(deleted, 2)
+            self.assertEqual(errors, 0)
+            self.assertFalse(trash.exists())
+
+    def test_purge_trash_handles_empty_trash(self):
+        with tempfile.TemporaryDirectory() as directory:
+            state = Path(directory) / "state"
+            state.mkdir()
+            with patch.dict(os.environ, {"RAI_SCAN_HOME": str(state)}):
+                deleted, errors = purge_trash()
+            self.assertEqual(deleted, 0)
+            self.assertEqual(errors, 0)
+
+    def test_purge_trash_refuses_root(self):
+        with patch("rai_scan.removal.engine.os.geteuid", return_value=0):
+            with self.assertRaisesRegex(PermissionError, "running as root"):
+                purge_trash()
+
+
+class PermanentRemovalTests(unittest.TestCase):
+    def test_permanent_removal_deletes_file(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            home = root / "home"
+            state = root / "state"
+            home.mkdir()
+            artifact = home / ".config/demo/settings.json"
+            artifact.parent.mkdir(parents=True)
+            artifact.write_text("{}")
+            agent = {
+                "id": "demo",
+                "display_name": "Demo",
+                "total_bytes": 2,
+                "artifacts": [{"path": str(artifact), "type": "config", "size_bytes": 2}],
+                "packages": [],
+                "shell_lines": [],
+                "daemons": [],
+            }
+            with patch("rai_scan.removal.engine.Path.home", return_value=home), patch.dict(
+                os.environ, {"RAI_SCAN_HOME": str(state)}
+            ):
+                record, errors = remove_agents([agent], permanent=True)
+                self.assertFalse(errors)
+                self.assertFalse(artifact.exists())
+                self.assertTrue(record["files_moved_to_trash"])
+                self.assertEqual(record["files_moved_to_trash"][0]["trash"], "<permanent>")
+                self.assertEqual(record["state"], "complete")
+
+    def test_permanent_removal_deletes_directory(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            home = root / "home"
+            state = root / "state"
+            home.mkdir()
+            artifact_dir = home / ".config/demo"
+            artifact_dir.mkdir(parents=True)
+            (artifact_dir / "settings.json").write_text("{}")
+            (artifact_dir / "data.txt").write_text("data")
+            agent = {
+                "id": "demo",
+                "display_name": "Demo",
+                "total_bytes": 10,
+                "artifacts": [{"path": str(artifact_dir), "type": "config", "size_bytes": 10}],
+                "packages": [],
+                "shell_lines": [],
+                "daemons": [],
+            }
+            with patch("rai_scan.removal.engine.Path.home", return_value=home), patch.dict(
+                os.environ, {"RAI_SCAN_HOME": str(state)}
+            ):
+                record, errors = remove_agents([agent], permanent=True)
+                self.assertFalse(errors)
+                self.assertFalse(artifact_dir.exists())
+                self.assertEqual(record["files_moved_to_trash"][0]["trash"], "<permanent>")
+
+    def test_permanent_removal_cannot_be_rolled_back(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            home = root / "home"
+            state = root / "state"
+            home.mkdir()
+            artifact = home / ".demo"
+            artifact.write_text("data")
+            agent = {
+                "id": "demo",
+                "display_name": "Demo",
+                "total_bytes": 4,
+                "artifacts": [{"path": str(artifact), "type": "config", "size_bytes": 4}],
+                "packages": [],
+                "shell_lines": [],
+                "daemons": [],
+            }
+            with patch("rai_scan.removal.engine.Path.home", return_value=home), patch.dict(
+                os.environ, {"RAI_SCAN_HOME": str(state)}
+            ):
+                record, errors = remove_agents([agent], permanent=True)
+                self.assertFalse(errors)
+                self.assertFalse(artifact.exists())
+            with patch("rai_scan.removal.rollback.Path.home", return_value=home), patch.dict(
+                os.environ, {"RAI_SCAN_HOME": str(state)}
+            ):
+                restored = rollback_last()
+            self.assertEqual(restored["state"], "rollback_partial")
+            self.assertTrue(restored["rollback_errors"])
+            self.assertIn("permanently deleted", restored["rollback_errors"][0])
+            self.assertFalse(artifact.exists())
 
 
 if __name__ == "__main__":
