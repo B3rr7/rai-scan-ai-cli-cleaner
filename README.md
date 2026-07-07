@@ -4,10 +4,7 @@
 
 It is built for safe cleanup: removals use preview mode, explicit confirmation, recoverable trash, rollback journals, and root-execution refusal.
 
-`rai-scan` finds known AI CLI agents, estimates their disk usage, and can remove
-their files through recoverable trash.
-
-Current release: **0.1.0**
+Current release: **0.1.0-alpha**
 
 The scanner recognizes binaries, package-manager installations, configuration
 and cache directories, shell startup lines, and systemd units. Low-confidence
@@ -52,10 +49,11 @@ python3 -m venv .venv
 
 ## Usage
 
-Open the guided interface:
+Open the guided TUI with a box-framed menu, agent table, and visual dialogs:
 
 ```sh
 rai-scan
+rai-scan menu     # same as above
 ```
 
 List detected agents using a fresh scan:
@@ -78,10 +76,16 @@ Preview removal without changing anything:
 rai-scan remove claude --dry-run --no-cache
 ```
 
-Remove an agent after an explicit confirmation:
+Remove an agent after an explicit confirmation (moves files to recoverable trash):
 
 ```sh
 rai-scan remove claude
+```
+
+Permanently delete an agent (skips trash — **cannot be undone**):
+
+```sh
+rai-scan remove claude --permanent
 ```
 
 Removal always performs a fresh scan. The command prints every planned
@@ -96,6 +100,12 @@ rai-scan remove example-agent --root
 When system-level operations are present, the command requires both `YES` and
 `SYSTEM`. It still runs with the current user's permissions.
 
+Purge all files in the recoverable trash:
+
+```sh
+rai-scan purge
+```
+
 Undo the latest removal session:
 
 ```sh
@@ -104,21 +114,24 @@ rai-scan rollback
 
 Only the latest removal session can be rolled back. A partial rollback can be
 retried; already restored packages and daemons are not repeated.
+Permanently removed files are skipped during rollback with an error entry.
 
 ### Commands
 
 | Command | Purpose |
 |---|---|
-| `rai-scan` or `rai-scan menu` | Open the guided interface |
+| `rai-scan` or `rai-scan menu` | Open the guided TUI interface |
 | `rai-scan list` | List detected agents |
 | `rai-scan remove NAME` | Preview and remove one or more agents |
 | `rai-scan rollback` | Restore the latest recorded removal |
+| `rai-scan purge` | Permanently delete all files in trash |
 | `rai-scan add-sig ...` | Add or replace a local signature |
 | `rai-scan reset-sig` | Delete local signature overrides |
 
 Common options:
 
 - `--dry-run`: preview removal without changing anything.
+- `--permanent`: delete files directly instead of moving to trash.
 - `--no-cache`: force a fresh scan for listing or reporting.
 - `--root`: include system paths and permit system-scoped attempts.
 - `--verbose`: display matched artifact paths.
@@ -130,7 +143,9 @@ Common options:
 - Every CLI removal prints a preview and requires typing `YES`.
 - System-scoped removal requires a second `SYSTEM` confirmation.
 - Removal always performs a fresh scan rather than trusting a cached manifest.
-- Files are moved to `~/.rai-scan/trash`; they are not immediately deleted.
+- Files are moved to `~/.rai-scan/trash` by default; they are not immediately deleted.
+- `--permanent` flag skips trash and deletes files directly (cannot be undone).
+- `rai-scan purge` permanently removes all files in `~/.rai-scan/trash/`.
 - File, unit, and shell changes use a write-ahead rollback journal.
 - State directories are owner-only (`0700`) and state files are `0600`.
 - Rollback records are integrity-signed and confined to rai-scan trash paths.
@@ -162,11 +177,35 @@ rollback.
 - Daemon restoration depends on a working systemd user or system service.
 - Recoverable file moves must remain on the same filesystem as
   `~/.rai-scan/trash`; cross-filesystem moves are refused.
+- `--permanent` operations and `purge` delete files irreversibly (no rollback).
 - `--root` does not make root-owned operations succeed.
 - Rollback journals without a valid integrity signature are rejected.
 
 See [SECURITY.md](SECURITY.md) for the trust model and vulnerability-reporting
 guidance.
+
+## Guided TUI menu
+
+The guided interface (`rai-scan` or `rai-scan menu`) offers:
+
+| Option | Action |
+|---|---|
+| 1 | Fresh scan |
+| 2 | Show simple results |
+| 3 | Show detailed results |
+| 4 | Recommendations |
+| 5 | Safe removal wizard (moves to trash) |
+| 6 | Permanent removal wizard (deletes directly) |
+| 7 | Export report (JSON / Markdown / HTML) |
+| 8 | Roll back last removal |
+| 9 | Purge trash |
+| 10 | Help & safety info |
+| 11 | Uninstall |
+| 0 | Exit |
+
+Removal wizards show a full preview, prompt for agent selection, and require
+typing `YES` (safe) or `PERMANENT` (permanent deletion). System-scoped items
+additionally require `ROOT` approval.
 
 ## Custom signatures
 
