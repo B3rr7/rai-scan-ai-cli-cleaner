@@ -298,6 +298,8 @@ Preview either operation safely:
 Uninstall refuses root execution, symlinked state directories, and unsafe
 canonical state paths.
 
+##Ai Use
+
 ## Release history
 
 See [CHANGELOG.md](CHANGELOG.md).
