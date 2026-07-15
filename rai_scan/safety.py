@@ -21,24 +21,24 @@ def refuse_mount_point(path: Path, label: str) -> None:
     destroy data outside the agent's intended scope. Plain symlinks inside the
     tree are ignored because rmtree unlinks (does not recurse into) them.
     """
-    if not path.is_dir():
+    if not os.path.isdir(str(path)):
         return
-    info = path.stat()
+    info = os.stat(str(path))
     parent = path.parent
-    if parent.exists() or parent.is_symlink():
+    if os.path.exists(str(parent)) or os.path.islink(str(parent)):
         try:
-            parent_dev = parent.stat().st_dev
+            parent_dev = os.stat(str(parent)).st_dev
         except OSError:
             parent_dev = info.st_dev
         if info.st_dev != parent_dev:
             raise PermissionError("{} is a mount point; refusing: {}".format(label, path))
-    for root, dirs, _files in os.walk(path, followlinks=False):
+    for root, dirs, _files in os.walk(str(path), followlinks=False):
         for name in dirs:
-            child = Path(root) / name
-            if child.is_symlink():
+            child = os.path.join(root, name)
+            if os.path.islink(child):
                 continue
             try:
-                child_dev = child.stat().st_dev
+                child_dev = os.stat(child).st_dev
             except OSError:
                 continue
             if child_dev != info.st_dev:
