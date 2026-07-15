@@ -15,6 +15,7 @@ from rai_scan.models import unique_non_overlapping
 from rai_scan.safety import (
     atomic_write_bytes,
     atomic_write_text,
+    refuse_mount_point,
     refuse_root,
     reject_symlink_components,
     secure_directory,
@@ -176,38 +177,86 @@ def _move_artifacts(
     include_root: bool,
     record: Dict[str, Any],
     permanent: bool = False,
-) -> List[Dict[str, str]]:
+) -> Tuple[List[Dict[str, str]], List[str]]:
     moved = []
-    for source in _artifact_paths(agent):
-        _validate_removal_path(source, include_root)
+    failures = []
+    agent_id = agent.get("id", "unknown")
+    seen_paths: set = set()
+    for item in agent.get("artifacts", []):
+        raw = item.get("path")
+        if raw is None or raw in seen_paths:
+            continue
+        seen_paths.add(raw)
+        source = Path(raw)
+        try:
+            _validate_removal_path(source, include_root)
+        except (PermissionError, RuntimeError) as exc:
+            message = "{}: {} ({})".format(agent_id, type(exc).__name__, exc)
+            failures.append(message)
+            record["errors"].append(message)
+            _update_last_record(record)
+            continue
         if not (source.exists() or source.is_symlink()):
             continue
-        if permanent:
-            entry = {"original": str(source), "trash": "<permanent>"}
-            record["files_moved_to_trash"].append(entry)
+        try:
+            info = source.lstat()
+        except OSError as exc:
+            message = "{}: could not inspect {}: {}".format(agent_id, source, exc)
+            failures.append(message)
+            record["errors"].append(message)
             _update_last_record(record)
-            if source.is_symlink() or source.is_file():
-                source.unlink()
-            elif source.is_dir():
-                import shutil
-                shutil.rmtree(source)
-            moved.append(entry)
+            continue
+        for field, actual in (
+            ("device", info.st_dev),
+            ("inode", info.st_ino),
+            ("mode", info.st_mode),
+            ("uid", info.st_uid),
+        ):
+            recorded = item.get(field)
+            if recorded is not None and recorded != actual:
+                message = "{}: {} changed since scan ({}); refusing".format(
+                    agent_id, source, field
+                )
+                failures.append(message)
+                record["errors"].append(message)
+                _update_last_record(record)
+                break
         else:
-            destination = _trash_destination(agent["id"], source, session)
-            secure_directory(destination.parent, "trash directory")
-            entry = {"original": str(source), "trash": str(destination)}
-            record["files_moved_to_trash"].append(entry)
-            _update_last_record(record)
             try:
-                os.rename(str(source), str(destination))
-            except OSError as exc:
-                if exc.errno == getattr(os, "EXDEV", 18):
-                    raise RuntimeError(
-                        "refusing non-atomic cross-filesystem move: {}".format(source)
-                    )
-                raise
-            moved.append(entry)
-    return moved
+                if permanent:
+                    if source.is_symlink() or source.is_file():
+                        source.unlink()
+                    elif source.is_dir():
+                        import shutil
+                        refuse_mount_point(source, "artifact directory")
+                        shutil.rmtree(source)
+                    entry = {"original": str(source), "trash": "<permanent>"}
+                    record["files_moved_to_trash"].append(entry)
+                    _update_last_record(record)
+                    moved.append(entry)
+                else:
+                    destination = _trash_destination(agent_id, source, session)
+                    secure_directory(destination.parent, "trash directory")
+                    entry = {"original": str(source), "trash": str(destination)}
+                    record["files_moved_to_trash"].append(entry)
+                    _update_last_record(record)
+                    try:
+                        os.rename(str(source), str(destination))
+                    except OSError as exc:
+                        record["files_moved_to_trash"].pop()
+                        _update_last_record(record)
+                        if exc.errno == getattr(os, "EXDEV", 18):
+                            raise RuntimeError(
+                                "refusing non-atomic cross-filesystem move: {}".format(source)
+                            )
+                        raise
+                    moved.append(entry)
+            except (OSError, RuntimeError, PermissionError) as exc:
+                message = "{}: failed to remove {}: {}".format(agent_id, source, exc)
+                failures.append(message)
+                record["errors"].append(message)
+                _update_last_record(record)
+    return moved, failures
 
 
 def _uninstall(package: Dict[str, Any]) -> None:
@@ -425,7 +474,10 @@ def remove_agents(
                     errors.append(message)
                 continue
             try:
-                _move_artifacts(agent, session, include_root, record, permanent)
+                moved, artifact_errors = _move_artifacts(
+                    agent, session, include_root, record, permanent
+                )
+                errors.extend(artifact_errors)
                 for package in agent.get("packages", []):
                     if package.get("scope", "user") == "system" and not include_root:
                         raise PermissionError(
@@ -500,13 +552,23 @@ def purge_trash() -> Tuple[int, int]:
         if entry.is_dir():
             import shutil
 
+            for child in entry.rglob("*"):
+                if child.is_file() or child.is_symlink():
+                    try:
+                        child.unlink()
+                        deleted += 1
+                    except OSError as exc:
+                        print(
+                            "Warning: could not remove {}: {}".format(child, exc),
+                            file=sys.stderr,
+                        )
+                        errors += 1
             try:
                 shutil.rmtree(entry)
-                deleted += 1
             except OSError as exc:
                 print("Warning: could not remove {}: {}".format(entry, exc), file=sys.stderr)
                 errors += 1
-        elif entry.is_file():
+        elif entry.is_file() or entry.is_symlink():
             try:
                 entry.unlink()
                 deleted += 1

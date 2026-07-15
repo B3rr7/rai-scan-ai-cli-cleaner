@@ -5,7 +5,15 @@ import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-from rai_scan.removal.engine import _revalidate_paths, _uninstall, preview, purge_trash, remove_agents
+from rai_scan.removal.engine import (
+    _move_artifacts,
+    _revalidate_paths,
+    _uninstall,
+    preview,
+    purge_trash,
+    remove_agents,
+)
+from rai_scan.safety import refuse_mount_point
 from rai_scan.removal.rollback import append_record, rollback_last
 
 
@@ -537,6 +545,168 @@ class PermanentRemovalTests(unittest.TestCase):
             self.assertTrue(restored["rollback_errors"])
             self.assertIn("permanently deleted", restored["rollback_errors"][0])
             self.assertFalse(artifact.exists())
+
+
+class MoveArtifactResilienceTests(unittest.TestCase):
+    def test_failed_rename_leaves_no_phantom_journal_entry(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            home = root / "home"
+            state = root / "state"
+            home.mkdir()
+            artifact = home / ".demo"
+            artifact.write_text("keep me")
+            agent = {
+                "id": "demo",
+                "display_name": "Demo",
+                "total_bytes": 7,
+                "artifacts": [{"path": str(artifact), "type": "config", "size_bytes": 7}],
+                "packages": [],
+                "shell_lines": [],
+                "daemons": [],
+            }
+            def move_then_fail(source, destination):
+                raise OSError("simulated rename failure")
+
+            with patch("rai_scan.removal.engine.Path.home", return_value=home), patch.dict(
+                os.environ, {"RAI_SCAN_HOME": str(state)}
+            ), patch("rai_scan.removal.engine.os.rename", side_effect=move_then_fail):
+                record, errors = remove_agents([agent])
+            self.assertTrue(errors)
+            self.assertEqual(record["state"], "partial")
+            self.assertFalse(record["files_moved_to_trash"])
+            self.assertTrue(artifact.exists())
+
+    def test_other_artifacts_continue_after_one_fails(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            home = root / "home"
+            state = root / "state"
+            home.mkdir()
+            good = home / ".good"
+            good.write_text("remove me")
+            bad = home / ".bad"
+            bad.write_text("keep me")
+            agent = {
+                "id": "demo",
+                "display_name": "Demo",
+                "total_bytes": 18,
+                "artifacts": [
+                    {"path": str(good), "type": "config", "size_bytes": 10},
+                    {"path": str(bad), "type": "config", "size_bytes": 8},
+                ],
+                "packages": [],
+                "shell_lines": [],
+                "daemons": [],
+            }
+            real_move = os.rename
+
+            def move_first_then_fail(source, destination):
+                if str(source).endswith(".bad"):
+                    raise OSError("simulated rename failure")
+                real_move(source, destination)
+
+            with patch("rai_scan.removal.engine.Path.home", return_value=home), patch.dict(
+                os.environ, {"RAI_SCAN_HOME": str(state)}
+            ), patch("rai_scan.removal.engine.os.rename", side_effect=move_first_then_fail):
+                record, errors = remove_agents([agent])
+            self.assertTrue(errors)
+            self.assertEqual(record["state"], "partial")
+            self.assertFalse(good.exists())
+            self.assertTrue(bad.exists())
+            self.assertEqual(len(record["files_moved_to_trash"]), 1)
+
+    def test_refuses_source_changed_since_scan(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            home = root / "home"
+            state = root / "state"
+            home.mkdir()
+            target = home / "real.txt"
+            target.write_text("real")
+            link = home / ".agent"
+            link.symlink_to(target)
+            agent = {
+                "id": "demo",
+                "display_name": "Demo",
+                "total_bytes": 4,
+                "artifacts": [
+                    {
+                        "path": str(link),
+                        "type": "config",
+                        "size_bytes": 4,
+                        "device": target.stat().st_dev,
+                        "inode": target.stat().st_ino,
+                        "mode": target.stat().st_mode,
+                        "uid": target.stat().st_uid,
+                    }
+                ],
+                "packages": [],
+                "shell_lines": [],
+                "daemons": [],
+            }
+            record = {"files_moved_to_trash": [], "errors": []}
+            with patch("rai_scan.removal.engine.Path.home", return_value=home), patch.dict(
+                os.environ, {"RAI_SCAN_HOME": str(state)}
+            ):
+                moved, failures = _move_artifacts(agent, "sess", False, record, permanent=False)
+            self.assertTrue(failures)
+            self.assertEqual(moved, [])
+            self.assertTrue(target.exists())
+            self.assertTrue(link.exists())
+
+
+class MountPointGuardTests(unittest.TestCase):
+    class _FakeStat:
+        st_dev = 999999
+        st_ino = 1
+        st_mode = 0o40700
+        st_uid = 1000
+        st_size = 10
+
+    def test_allows_normal_hidden_directory(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            target = root / ".codex"
+            target.mkdir()
+            (target / "a").write_text("x")
+            refuse_mount_point(target, "artifact directory")
+
+    def test_refuses_top_level_mount_point(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            target = root / ".agents"
+            target.mkdir()
+            fake = self._FakeStat()
+            real_os_stat = os.stat
+
+            def fake_os_stat(path, *args, **kwargs):
+                if str(path) == str(target):
+                    return fake
+                return real_os_stat(path, *args, **kwargs)
+
+            with patch("os.stat", side_effect=fake_os_stat):
+                with self.assertRaises(PermissionError):
+                    refuse_mount_point(target, "artifact directory")
+
+    def test_refuses_nested_mount_point(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            target = root / ".codex"
+            target.mkdir()
+            child = target / "sub"
+            child.mkdir()
+            fake = self._FakeStat()
+            real_os_stat = os.stat
+
+            def fake_os_stat(path, *args, **kwargs):
+                if str(path).endswith("sub"):
+                    return fake
+                return real_os_stat(path, *args, **kwargs)
+
+            with patch("os.stat", side_effect=fake_os_stat):
+                with self.assertRaises(PermissionError):
+                    refuse_mount_point(target, "artifact directory")
 
 
 if __name__ == "__main__":

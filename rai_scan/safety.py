@@ -14,6 +14,39 @@ def refuse_root(operation: str) -> None:
         )
 
 
+def refuse_mount_point(path: Path, label: str) -> None:
+    """Refuse to remove a directory that is or contains a mount point.
+
+    Deleting a mount-point directory entry unmounts the filesystem, which can
+    destroy data outside the agent's intended scope. Plain symlinks inside the
+    tree are ignored because rmtree unlinks (does not recurse into) them.
+    """
+    if not path.is_dir():
+        return
+    info = path.stat()
+    parent = path.parent
+    if parent.exists() or parent.is_symlink():
+        try:
+            parent_dev = parent.stat().st_dev
+        except OSError:
+            parent_dev = info.st_dev
+        if info.st_dev != parent_dev:
+            raise PermissionError("{} is a mount point; refusing: {}".format(label, path))
+    for root, dirs, _files in os.walk(path, followlinks=False):
+        for name in dirs:
+            child = Path(root) / name
+            if child.is_symlink():
+                continue
+            try:
+                child_dev = child.stat().st_dev
+            except OSError:
+                continue
+            if child_dev != info.st_dev:
+                raise PermissionError(
+                    "{} contains a mount point; refusing: {}".format(label, child)
+                )
+
+
 def _existing_components(path: Path):
     current = path.absolute()
     components = [current]

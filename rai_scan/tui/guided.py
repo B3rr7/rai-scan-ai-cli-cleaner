@@ -248,7 +248,7 @@ def _removal_wizard(manifest: Dict[str, Any], permanent: bool = False) -> None:
             print("    {}".format(pkg))
         for name in system_daemons:
             print("    systemd system unit: {}".format(name))
-        include_root = input("\n  Allow system paths? Type ROOT: ").strip() == "ROOT"
+        include_root = input("\n  Allow system paths? Type SYSTEM: ").strip() == "SYSTEM"
         if not include_root:
             print(warning("  Cancelled."))
             return
@@ -426,7 +426,31 @@ def run(manifest: Dict[str, Any]) -> int:
                 print(menu_line(item[0], item[1]))
         print("  \u2514" + hr + "\u2518")
         print()
-        choice = input("  \u25b6 Option: ").strip().lstrip("0")
+        print(
+            muted(
+                "  shortcuts: s=scan  w=wizard  p=permanent  b=rollback  "
+                "t=trash  h=help  q=quit"
+            )
+        )
+        raw = input("  \u25b6 Option: ").strip()
+        choice = str(int(raw)) if raw.isdigit() else raw
+        shortcuts = {
+            "q": "0", "quit": "0", "exit": "0",
+            "s": "1", "scan": "1",
+            "l": "2", "list": "2",
+            "d": "3", "details": "3", "detail": "3",
+            "r": "4", "recommend": "4", "rec": "4",
+            "w": "5", "wizard": "5",
+            "p": "6", "permanent": "6",
+            "e": "7", "export": "7",
+            "b": "8", "rollback": "8", "back": "8",
+            "t": "9", "trash": "9", "purge": "9",
+            "h": "10", "help": "10",
+            "u": "11", "uninstall": "11",
+        }
+        resolved = shortcuts.get(choice.lower())
+        if resolved is not None:
+            choice = resolved
         print()
 
         if choice == "1":
@@ -481,7 +505,7 @@ def run(manifest: Dict[str, Any]) -> int:
                 print(success("  Uninstall complete. Exiting rai-scan."))
                 return 0
 
-        elif choice == "" or choice == "0":
+        elif choice == "0":
             print(muted("  Goodbye."))
             return 0
 

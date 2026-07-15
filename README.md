@@ -4,7 +4,7 @@
 
 It is built for safe cleanup: removals use preview mode, explicit confirmation, recoverable trash, rollback journals, and root-execution refusal.
 
-Current release: **0.1.0-alpha**
+Current release: **0.1.1**
 
 The scanner recognizes binaries, package-manager installations, configuration
 and cache directories, shell startup lines, and systemd units. Low-confidence
@@ -162,6 +162,12 @@ Common options:
 - Package names, versions, and systemd unit names are validated before being
   passed to external tools.
 - Protected operating-system trees are denied even during `--root` operations.
+- Directory removals refuse top-level and nested mount points to avoid unmounting filesystems.
+- Artifact identity (device, inode, mode, owner) is re-verified immediately before each deletion to defeat time-of-check/time-of-use symlink swaps.
+- A failed or interrupted file move leaves no phantom "moved to trash" journal entry.
+- Per-artifact failures are isolated; one bad artifact does not abort the rest of an agent's removal.
+- Hidden agent directories and files (e.g. `.codex`, `.agents`) delete with the same scope, identity, and mount-point protections as any other path.
+- `purge` reports the true number of removed files.
 
 Rollback restores moved files and shell lines, then attempts to reinstall
 removed packages and re-enable disabled daemons. External package managers or
@@ -205,7 +211,7 @@ The guided interface (`rai-scan` or `rai-scan menu`) offers:
 
 Removal wizards show a full preview, prompt for agent selection, and require
 typing `YES` (safe) or `PERMANENT` (permanent deletion). System-scoped items
-additionally require `ROOT` approval.
+additionally require `SYSTEM` approval.
 
 ## Custom signatures
 
