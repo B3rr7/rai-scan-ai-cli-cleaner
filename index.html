@@ -23,7 +23,7 @@
     "applicationCategory": "DeveloperApplication",
     "operatingSystem": "Linux",
     "description": "Finds known AI CLI agents, estimates their disk usage, and removes their files through recoverable trash.",
-    "version": "0.1.0",
+    "version": "0.1.1",
     "author": { "@type": "Organization", "name": "rai-scan contributors" },
     "license": "MIT",
     "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" }
@@ -373,7 +373,7 @@
 
 <section class="hero">
   <div class="container">
-    <div class="hero-badge animate animate-d1"><span class="dot"></span> v0.1.0 &middot; MIT</div>
+    <div class="hero-badge animate animate-d1"><span class="dot"></span> v0.1.1 &middot; MIT</div>
     <h1 class="animate animate-d2">
       <span class="block">Find &amp; safely remove</span>
       <span class="gradient block">AI CLI agents</span>
@@ -518,6 +518,18 @@
         <div class="icon g">✓</div>
         <div class="text"><strong>Atomic writes with fsync</strong>All state files are written atomically using <code>tempfile</code> + <code>os.replace</code> + <code>fsync</code>. Partial writes or crashes never leave corrupt state.</div>
       </div>
+      <div class="safety-item">
+        <div class="icon g">✓</div>
+        <div class="text"><strong>Mount-point protection</strong>Directory removals refuse both top-level and nested mount points, so a delete can never unmount a filesystem or destroy data outside the agent's scope.</div>
+      </div>
+      <div class="safety-item">
+        <div class="icon g">✓</div>
+        <div class="text"><strong>TOCTOU symlink defense</strong>Each artifact's device, inode, mode, and owner are re-verified immediately before deletion. A mid-removal symlink swap is blocked instead of followed.</div>
+      </div>
+      <div class="safety-item">
+        <div class="icon g">✓</div>
+        <div class="text"><strong>Isolated failures</strong>If one artifact fails to remove, the rest of the agent is still cleaned up and the error is reported — no partial, confusing leftovers.</div>
+      </div>
     </div>
   </div>
 </section>
@@ -533,7 +545,7 @@
           <div class="stat-label">Known AI agents</div>
         </div>
         <div class="stat-item">
-          <div class="stat-num green" id="testCount">61</div>
+          <div class="stat-num green" id="testCount">67</div>
           <div class="stat-label">Automated tests</div>
         </div>
         <div class="stat-item">
