@@ -20,6 +20,14 @@ Mutating operations are designed to fail closed:
 - State files must be regular files owned by the current user.
 - Symlinked state, journal, and shell startup files are rejected.
 - Removal uses a fresh scan and validates artifact identity before mutation.
+- Artifact identity (device, inode, mode, owner) is re-verified
+  immediately before each deletion to defeat time-of-check/time-of-use
+  symlink swaps.
+- Directory removals refuse top-level and nested mount points, so a
+  delete cannot unmount a filesystem or reach data outside the agent's scope.
+- Per-artifact failures are isolated: one bad artifact does not abort
+  the rest of an agent's removal, and a failed move leaves no phantom
+  journal entry.
 - Protected system and sensitive user paths are denied.
 - System findings require `--root` scope and explicit `SYSTEM` confirmation.
 - Rollback records use an owner-only HMAC key and are validated before use.
